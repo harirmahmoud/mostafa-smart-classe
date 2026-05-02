@@ -1,4 +1,4 @@
-FROM --platform=linux/amd64 php:8.2-cli
+FROM --platform=linux/amd64 php:8.3-cli
 
 WORKDIR /var/www
 
@@ -20,12 +20,6 @@ COPY . .
 
 RUN composer install --no-dev --optimize-autoloader
 
-# Copy .env or create from example
-RUN cp .env.example .env || true
-
-# Generate app key
-RUN php artisan key:generate
-
 EXPOSE 8000
 
-CMD php artisan serve --host=0.0.0.0 --port=8000
+CMD ["sh", "-lc", "[ -f .env ] || cp .env.example .env; php artisan serve --host=0.0.0.0 --port=8000"]
