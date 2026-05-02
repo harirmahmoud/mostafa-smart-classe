@@ -2,63 +2,103 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\ComponentDiscovery;
+use App\Models\SchoolClass;
 use Illuminate\Http\Request;
 
 class SchoolClassController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
     public function index()
     {
-        //
+        return SchoolClass::all();
     }
 
-    /**
-     * Show the form for creating a new resource.
-     */
     public function create()
     {
-        //
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
     public function store(Request $request)
     {
-        //
+        $validated = $request->validate(['name' => 'required|string|unique:school_classes']);
+
+        return SchoolClass::create($validated);
+    }
+
+    public function show(SchoolClass $schoolClass)
+    {
+        return $schoolClass;
+    }
+
+    public function edit(SchoolClass $schoolClass)
+    {
+    }
+
+    public function update(Request $request, SchoolClass $schoolClass)
+    {
+        $validated = $request->validate(['name' => 'required|string|unique:school_classes,name,'.$schoolClass->id]);
+        $schoolClass->update($validated);
+
+        return $schoolClass;
+    }
+
+    public function destroy(SchoolClass $schoolClass)
+    {
+        $schoolClass->delete();
+
+        return response()->noContent();
     }
 
     /**
-     * Display the specified resource.
+     * Webhook endpoint for ESP32 devices to send discovered component APIs.
+     * ESP32 sends device APIs without specifying which class they belong to.
+     * Admin later assigns the discovery to a class via the assignment endpoint.
+     * Accepts:
+     * - device_id (optional): identifier for the ESP32 device
+     * - apis: array of strings OR objects ({ label, api })
+     * Each API is a single toggle endpoint for on/off control.
      */
-    public function show(string $id)
+    public function webhookComponentApis(Request $request)
     {
-        //
-    }
+        $data = $request->validate([
+            'device_id' => 'sometimes|string|max:255',
+            'apis' => 'required|array|min:1',
+            'apis.*' => 'required',
+        ]);
 
-    /**
-     * Show the form for editing the specified resource.
-     */
-    public function edit(string $id)
-    {
-        //
-    }
+        $normalizedApis = collect($data['apis'])->map(function ($api, $index) {
+            if (is_string($api)) {
+                return [
+                    'label' => 'Component '.($index + 1),
+                    'api' => $api,
+                ];
+            }
 
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(Request $request, string $id)
-    {
-        //
-    }
+            return [
+                'label' => $api['label'] ?? ('Component '.($index + 1)),
+                'api' => $api['api'] ?? '',
+            ];
+        })->filter(function ($api) {
+            return !empty($api['api']);
+        })->values()->all();
 
-    /**
-     * Remove the specified resource from storage.
-     */
-    public function destroy(string $id)
-    {
-        //
+        if (empty($normalizedApis)) {
+            return response()->json(['message' => 'No valid APIs were provided'], 422);
+        }
+
+        if (!empty($data['device_id'])) {
+            ComponentDiscovery::where('device_id', $data['device_id'])->delete();
+        }
+
+        $discovery = ComponentDiscovery::create([
+            'school_class_id' => null,
+            'device_id' => $data['device_id'] ?? null,
+            'apis' => $normalizedApis,
+        ]);
+
+        return response()->json([
+            'message' => 'Component APIs received',
+            'discovery' => $discovery,
+            'apis' => $normalizedApis,
+        ]);
     }
 }
